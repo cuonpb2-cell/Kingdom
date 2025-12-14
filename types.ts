@@ -1,4 +1,3 @@
-
 export interface KingdomStats {
   year: number;
   month: number;
@@ -162,7 +161,8 @@ export interface TurnResult {
     newBuffs?: KingdomBuff[];
     removedBuffIds?: string[];
   };
-  initialStats?: KingdomStats; 
+  initialStats?: KingdomStats;
+  map_grid?: string[]; // <--- MỚI THÊM: Mảng string biểu diễn bản đồ từ AI
   isGameOver: boolean;
   gameOverReason?: string;
 }

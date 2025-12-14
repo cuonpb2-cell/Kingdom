@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { KingdomStats, GameLog, ActionType, GameSettings, WorldInfo, KingdomHeritage, KingdomBuff, SuggestedAction } from './types';
 import { processGameTurn } from './services/geminiService';
@@ -10,7 +9,7 @@ import { WorldCreation } from './components/WorldCreation';
 import { InfoModal } from './components/InfoModal';
 import { PoliticsModal } from './components/PoliticsModal';
 import { MapModal } from './components/MapModal';
-import { EconomyModal } from './components/EconomyModal'; // Imported new modal
+import { EconomyModal } from './components/EconomyModal'; 
 
 const GoldIcon = <span role="img" aria-label="gold">🪙</span>;
 const FoodIcon = <span role="img" aria-label="food">🍞</span>;
@@ -18,7 +17,6 @@ const PopIcon = <span role="img" aria-label="population">👥</span>;
 const ArmyIcon = <span role="img" aria-label="army">⚔️</span>;
 const HappyIcon = <span role="img" aria-label="happiness">🎭</span>;
 const TimeIcon = <span role="img" aria-label="time">⏳</span>;
-// New Icons
 const WoodIcon = <span role="img" aria-label="wood">🪵</span>;
 const StoneIcon = <span role="img" aria-label="stone">🪨</span>;
 const ManpowerIcon = <span role="img" aria-label="manpower">💪</span>;
@@ -60,7 +58,6 @@ const INITIAL_HERITAGE: KingdomHeritage = {
   divisions: []
 };
 
-// Initial choices before the game processes the first prompt
 const INITIAL_CHOICES: SuggestedAction[] = [
   { label: "Bắt đầu triều đại", action: "Bước lên ngai vàng và tuyên bố triều đại bắt đầu", style: "Neutral" }
 ];
@@ -74,6 +71,10 @@ const App: React.FC = () => {
   const [activeBuffs, setActiveBuffs] = useState<KingdomBuff[]>([]); 
   const [currentChoices, setCurrentChoices] = useState<SuggestedAction[]>(INITIAL_CHOICES);
   
+  // --- CẬP NHẬT: State cho bản đồ ---
+  const [mapData, setMapData] = useState<import('./types').WorldMap | null>(null);
+  // ----------------------------------
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [lastChange, setLastChange] = useState<Partial<KingdomStats>>({});
@@ -82,17 +83,11 @@ const App: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showPoliticsModal, setShowPoliticsModal] = useState(false);
   const [showMapModal, setShowMapModal] = useState(false);
-  const [showEconomyModal, setShowEconomyModal] = useState(false); // New State
+  const [showEconomyModal, setShowEconomyModal] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Helper to calculate estimated upkeep/income based on game rules
-  // Updated logic to include EP and Tax Rate
   const getEstimatedForecast = (currentStats: KingdomStats) => {
-    // UPDATED Rules:
-    // Income: Pop * TaxMod * (EP/100)
-    // Army Upkeep: Food (Army * 2.0), Gold (Army * 1.0)
-    
     let taxMod = 1.0;
     switch(currentStats.taxRate) {
         case 'Tax Haven': taxMod = 0; break;
@@ -101,13 +96,8 @@ const App: React.FC = () => {
         case 'Extortion': taxMod = 1.5; break;
         default: taxMod = 1.0;
     }
-    
-    // Base gold per person (tiny value) multiplied by tax mod and EP factor
-    // Let's assume base tax per person is roughly 0.1 gold per month at standard tax
-    // EP acts as a percentage multiplier (EP 100 = 100% efficiency)
     const epFactor = Math.max(0.1, (currentStats.economicPower || 10) / 100);
-    const estimatedIncome = Math.floor(currentStats.population * 0.1 * taxMod * epFactor * 10); // Multiplied by 10 to make numbers visible
-
+    const estimatedIncome = Math.floor(currentStats.population * 0.1 * taxMod * epFactor * 10); 
     const foodUpkeep = Math.floor(currentStats.army * 2.0);
     const goldUpkeep = Math.floor(currentStats.army * 1.0);
     
@@ -135,6 +125,7 @@ const App: React.FC = () => {
     setGameOver(false);
     setLastChange({});
     setLogs([]); 
+    setMapData(null); // Reset map
     setView('game');
     setIsProcessing(true);
 
@@ -146,7 +137,7 @@ const App: React.FC = () => {
             INITIAL_WORLD_INFO, 
             INITIAL_HERITAGE,
             [],
-            [] // Empty history for new game
+            [] 
         );
         
         if (result.initialStats) {
@@ -169,6 +160,16 @@ const App: React.FC = () => {
         if (result.buffsUpdate) handleBuffsUpdate(result.buffsUpdate);
         if (result.suggestedActions) setCurrentChoices(result.suggestedActions);
         
+        // --- CẬP NHẬT: Nhận bản đồ từ AI khi khởi tạo ---
+        if (result.map_grid) {
+          setMapData({
+            rows: result.map_grid.length,
+            cols: result.map_grid[0].length,
+            grid: result.map_grid.map(row => row.split(''))
+          });
+        }
+        // -----------------------------------------------
+
         setLogs([
             {
                 id: 'init',
@@ -313,6 +314,11 @@ const App: React.FC = () => {
         setActiveBuffs(parsed.activeBuffs || []);
         setCurrentChoices(parsed.currentChoices || []);
         
+        // Load map data if available
+        if (parsed.mapData) {
+            setMapData(parsed.mapData);
+        }
+
         setView('game');
       } catch (err) {
         console.error(err);
@@ -324,7 +330,8 @@ const App: React.FC = () => {
   };
 
   const saveGame = () => {
-    const data = { stats, logs, gameOver, lastChange, settings, worldInfo, heritage, activeBuffs, currentChoices };
+    // Add mapData to save file
+    const data = { stats, logs, gameOver, lastChange, settings, worldInfo, heritage, activeBuffs, currentChoices, mapData };
     const jsonString = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -349,7 +356,6 @@ const App: React.FC = () => {
     const actionText = actionType === ActionType.CUSTOM ? customInput! : actionType;
     const currentTimeString = `Năm ${stats.year} - Tháng ${stats.month}`;
     
-    // Create temp logs to send to AI including the user's current action
     const currentLog: GameLog = {
       id: Date.now().toString(),
       type: 'user',
@@ -370,13 +376,23 @@ const App: React.FC = () => {
       worldInfo, 
       heritage, 
       activeBuffs, 
-      updatedLogsForHistory // Pass full history + current action
+      updatedLogsForHistory 
     );
 
     if (result.worldUpdate) handleWorldUpdate(result.worldUpdate);
     if (result.politicalUpdate) handlePoliticalUpdate(result.politicalUpdate);
     if (result.buffsUpdate) handleBuffsUpdate(result.buffsUpdate);
     if (result.suggestedActions) setCurrentChoices(result.suggestedActions);
+
+    // --- CẬP NHẬT: Nhận bản đồ từ AI sau mỗi lượt (nếu có thay đổi) ---
+    if (result.map_grid) {
+        setMapData({
+            rows: result.map_grid.length,
+            cols: result.map_grid[0].length,
+            grid: result.map_grid.map(row => row.split(''))
+        });
+    }
+    // ----------------------------------------------------------------
 
     if (result.isGameOver) {
       setGameOver(true);
@@ -397,7 +413,6 @@ const App: React.FC = () => {
         }
       ]);
     } else {
-      // HANDLE DYNAMIC TIME PASSING (MONTHLY)
       const monthsPassed = result.monthsPassed || 1;
       let nextMonth = stats.month + monthsPassed;
       let nextYear = stats.year;
@@ -407,7 +422,6 @@ const App: React.FC = () => {
         nextYear += 1;
       }
 
-      // Safe update for new resource fields
       const newStats = {
         year: nextYear,
         month: nextMonth,
@@ -421,7 +435,7 @@ const App: React.FC = () => {
         manpower: Math.max(0, (stats.manpower || 0) + (result.statsChange.manpower || 0)),
         supplies: Math.max(0, (stats.supplies || 0) + (result.statsChange.supplies || 0)),
         economicPower: Math.max(0, (stats.economicPower || 0) + (result.statsChange.economicPower || 0)),
-        taxRate: stats.taxRate // Maintain current tax rate, unless AI explicitly suggests changing it (not implemented yet in AI response, user controls this)
+        taxRate: stats.taxRate
       };
 
       setLastChange({
@@ -465,7 +479,6 @@ const App: React.FC = () => {
     setIsProcessing(false);
   };
 
-  // Callback to update Tax Rate instantly
   const handleTaxChange = (rate: KingdomStats['taxRate']) => {
     setStats(prev => ({ ...prev, taxRate: rate }));
   };
@@ -506,7 +519,7 @@ const App: React.FC = () => {
       <MapModal
         isOpen={showMapModal}
         onClose={() => setShowMapModal(false)}
-        mapData={null}
+        mapData={mapData} // <--- Đã truyền mapData vào đây
         worldInfo={worldInfo}
         settings={settings}
       />
@@ -548,7 +561,6 @@ const App: React.FC = () => {
                   />
                </div>
                
-               {/* PRIMARY RESOURCES */}
                <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2 px-1">Kho Bạc & Lương Thực</h3>
                <ResourceCard 
                     label="Vàng" 
@@ -556,7 +568,7 @@ const App: React.FC = () => {
                     icon={GoldIcon} 
                     colorClass="text-amber-400" 
                     change={lastChange.gold}
-                    forecast={forecast.gold} // Updated logic
+                    forecast={forecast.gold} 
                />
                <ResourceCard 
                     label="Sức Mạnh Kinh Tế (EP)" 
@@ -574,14 +586,12 @@ const App: React.FC = () => {
                     forecast={forecast.food} 
                />
 
-               {/* CONSTRUCTION RESOURCES */}
                <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mt-6 mb-2 px-1">Tài Nguyên Xây Dựng</h3>
                <div className="grid grid-cols-2 gap-2">
                  <ResourceCard label="Gỗ" value={stats.wood || 0} icon={WoodIcon} colorClass="text-amber-700" change={lastChange.wood} />
                  <ResourceCard label="Đá" value={stats.stone || 0} icon={StoneIcon} colorClass="text-zinc-400" change={lastChange.stone} />
                </div>
 
-               {/* POPULATION & ARMY */}
                <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mt-6 mb-2 px-1">Nhân Sự & Quốc Phòng</h3>
                <ResourceCard label="Dân Số" value={stats.population} icon={PopIcon} colorClass="text-blue-400" change={lastChange.population} />
                <ResourceCard label="Nhân Lực" value={stats.manpower || 0} icon={ManpowerIcon} colorClass="text-orange-400" change={lastChange.manpower} />
@@ -631,6 +641,13 @@ const App: React.FC = () => {
                   {settings.kingdomName}
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
+                   
+                   {/* --- NÚT BẢN ĐỒ MỚI --- */}
+                   <button onClick={() => setShowMapModal(true)} disabled={isProcessing} className="text-xs md:text-sm bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-200 px-3 py-1.5 rounded transition-colors flex items-center gap-2">
+                      <span>🗺️</span> <span className="hidden md:inline">Bản Đồ</span>
+                   </button>
+                   {/* ---------------------- */}
+
                    <button onClick={() => setShowEconomyModal(true)} disabled={isProcessing} className="text-xs md:text-sm bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-200 px-3 py-1.5 rounded transition-colors flex items-center gap-2">
                       <span>💰</span> <span className="hidden md:inline">Kinh Tế</span>
                    </button>

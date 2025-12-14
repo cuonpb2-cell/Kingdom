@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { KingdomStats, TurnResult, GameSettings, WorldInfo, KingdomHeritage, KingdomBuff, GameLog } from "../types";
 
@@ -109,6 +108,13 @@ const responseSchema: Schema = {
       items: entityActionSchema,
       description: "List of significant actions taken by 1-3 other AI kingdoms/entities this turn."
     },
+    // --- CẬP NHẬT: Thêm map_grid vào Schema ---
+    map_grid: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "A grid represented as an array of strings (e.g. 12x12). Use entity IDs (e.g., 'A', 'B', 'P') for territories, '~' for ocean."
+    },
+    // ------------------------------------------
     worldUpdate: {
       type: Type.OBJECT,
       properties: {
@@ -182,7 +188,7 @@ const responseSchema: Schema = {
     isGameOver: { type: Type.BOOLEAN },
     gameOverReason: { type: Type.STRING },
   },
-  required: ["narrative", "statsChange", "isGameOver", "suggestedActions"],
+  required: ["narrative", "statsChange", "isGameOver", "suggestedActions", "map_grid"], // Đã thêm map_grid vào required
 };
 
 export const processGameTurn = async (
@@ -207,21 +213,31 @@ export const processGameTurn = async (
     .map(log => `[${log.timestamp}] ${log.type === 'user' ? 'LÃNH ĐẠO' : log.type === 'world_event' ? 'THẾ GIỚI' : 'GAME MASTER'}: ${log.content}`)
     .join('\n');
 
+  // --- CẬP NHẬT: Prompt khởi tạo tài nguyên dựa trên cốt truyện ---
   let initializationInstruction = "";
   if (isInit) {
     initializationInstruction = `
-    ĐÂY LÀ LƯỢT ĐẦU TIÊN (KHỞI TẠO VƯƠNG QUỐC). NHIỆM VỤ QUAN TRỌNG:
-    1. **Tài nguyên khởi đầu (initialStats)**: Phải dựa hoàn toàn vào "Bối cảnh khởi đầu" ("${settings.background}"). 
-       - Nếu bối cảnh là hoang tàn/khó khăn: Vàng, Lương thực, Gỗ, Đá, Nhân lực, Vật tư, EP phải RẤT THẤP. Quân đội ít.
-       - Nếu bối cảnh là kế thừa/giàu có: Tài nguyên dồi dào.
-       - TUYỆT ĐỐI KHÔNG dùng chỉ số mặc định. Hãy sáng tạo số liệu phù hợp với câu chuyện.
-       - Khởi tạo \`taxRate\` là 'Standard'.
+    ĐÂY LÀ LƯỢT ĐẦU TIÊN (KHỞI TẠO).
+    
+    NHIỆM VỤ 1: KHỞI TẠO TÀI NGUYÊN (initialStats) DỰA TRÊN CỐT TRUYỆN:
+    Hãy đọc kỹ "Bối cảnh khởi đầu": "${settings.background}" và "Mô tả lãnh đạo": "${settings.leaderDescription}".
+    - Nếu là "Hoàng tộc/Giàu có/Thương buôn": Vàng > 5000, Lương thực > 10000, EP > 60.
+    - Nếu là "Lưu vong/Khởi nghiệp/Hoang tàn": Vàng < 500, Lương thực < 1000, EP < 20.
+    - Nếu là "Tướng quân/Chiến tranh": Quân đội > 1000, Vật tư > 2000, nhưng Vàng thấp.
+    => Hãy tự đưa ra con số cụ thể phù hợp với logic câu chuyện. Đừng dùng số mặc định.
 
-    2. **Khởi tạo Chính trị (politicalUpdate)**: BẮT BUỘC phải tạo ra:
-       - Nhân vật Lãnh đạo (${settings.leaderName}) trong danh sách \`newFamilyMembers\` với \`familyRelation: 'Self'\`.
-       - Vùng đất Thủ đô trong danh sách \`newDivisions\` với \`type: 'Capital'\`.
+    NHIỆM VỤ 2: VẼ BẢN ĐỒ (map_grid):
+    - Tạo ra một lưới bản đồ (khoảng 12x12).
+    - Đặt lãnh thổ người chơi (ID: 'P') ở vị trí phù hợp (Giữa map hoặc ven biển tùy bối cảnh).
+    - Tạo 2-3 quốc gia khác (newEntities) và đặt ID của chúng lên bản đồ xung quanh người chơi.
+    - Dùng '~' cho biển/hồ.
+    
+    NHIỆM VỤ 3: CHÍNH TRỊ:
+    - Tạo nhân vật Lãnh đạo (${settings.leaderName}) trong newFamilyMembers.
+    - Tạo Vùng đất Thủ đô trong newDivisions.
     `;
   }
+  // ---------------------------------------------------------------
 
   const prompt = `
     Bạn là Quản Trò (Game Master) của trò chơi xây dựng vương quốc (Text-based RPG).
@@ -272,6 +288,9 @@ export const processGameTurn = async (
     4. **CƠ CHẾ UPKEEP (DUY TRÌ)**:
        - Quân đội tiêu tốn: Lương thực (ăn) + Vàng (lương) + Vật tư (nếu đang chiến tranh).
        - Hãy tính toán \`statsChange\` hợp lý dựa trên Hành động + Upkeep + Thu nhập (dựa trên EP/Thuế).
+    
+    5. **BẢN ĐỒ (QUAN TRỌNG)**:
+       - Luôn trả về \`map_grid\` cập nhật nếu có thay đổi lãnh thổ (chiếm đất, mất đất). Nếu không đổi, hãy trả về bản đồ cũ.
 
     Hãy trả về JSON theo đúng Schema.
   `;
@@ -294,7 +313,6 @@ export const processGameTurn = async (
 
   } catch (error) {
     console.error("Gemini API Error:", error);
-    // Return safe fallback with new stats initialized to 0 change
     return {
       narrative: "Hệ thống viễn thám gặp sự cố...",
       statsChange: { gold: 0, food: 0, population: 0, army: 0, happiness: 0, wood: 0, stone: 0, manpower: 0, supplies: 0, economicPower: 0 },
